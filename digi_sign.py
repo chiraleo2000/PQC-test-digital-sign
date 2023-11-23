@@ -168,20 +168,20 @@ def embed_signature_timestamp(file_path, signature_path, timestamp_path, output_
         print("Unsupported file type")
 
 def print_help_message():
-    print("Usage: python digi_sign_v5.py <function> <algorithm> <document_filename> [<signature_name>]")
+    print("Usage: python digi_sign.py <function> <algorithm> <document_filename> [<signature_name>]")
     print("\nFunctions:")
     print("  'generate-keys' - Generates a key and certificate for a signature name.")
-    print("    - Usage: python digi_sign_v5.py generate-keys <algorithm> <signature_name>")
+    print("    - Usage: python digi_sign.py generate-keys <algorithm> <signature_name>")
     print("  'sign' - Signs a document using the specified signature name.")
-    print("    - Usage: python digi_sign_v5.py sign <algorithm> <document_filename> <signature_name>")
+    print("    - Usage: python digi_sign.py sign <algorithm> <document_filename> <signature_name>")
     print("  'verify' - Verifies the signature of the specified document.")
-    print("    - Usage: python digi_sign_v5.py verify <algorithm> <document_filename> <signature_filename>")
+    print("    - Usage: python digi_sign.py verify <algorithm> <document_filename> <signature_filename>")
     print("\nAlgorithm for digital signature: ")
     print(" CRYSTALS-Dilithium: dilithium2, p256_dilithium2, rsa3072_dilithium2, dilithium3, p384_dilithium3, dilithium5, p521_dilithium5")
     print("\nExamples:")
-    print("  python3 digi_sign_v5.py generate-keys dilithium2 mySignature1")
-    print("  python3 digi_sign_v5.py sign dilithium2 transactions.pdf mySignature1")
-    print("  python3 digi_sign_v5.py verify dilithium2 transactions.pdf mySignature1 transactions_mySignature1_signature_pdf.sha512")
+    print("  python3 digi_sign.py generate-keys dilithium2 mySignature1")
+    print("  python3 digi_sign.py sign dilithium2 transactions.pdf mySignature1")
+    print("  python3 digi_sign.py verify dilithium2 transactions.pdf mySignature1 transactions_mySignature1_signature_pdf.sha512")
 
 def main():
     if len(sys.argv) == 2 and sys.argv[1] in ['--help', '-h']:
@@ -190,7 +190,7 @@ def main():
 
     if len(sys.argv) < 3:
         print("Missing arguments. For usage instructions, run:")
-        print("  python digi_sign_v5.py --help")
+        print("  python digi_sign.py --help")
         sys.exit(1)
 
     function = sys.argv[1]
@@ -198,13 +198,13 @@ def main():
 
     if function == 'generate-keys':
         if len(sys.argv) < 4:
-            print("Missing signature name. Usage: python digi_sign_v5.py generate-keys <algorithm> <signature_name>")
+            print("Missing signature name. Usage: python digi_sign.py generate-keys <algorithm> <signature_name>")
             sys.exit(1)
         signature_name = sys.argv[3]
         generate_keys(algorithm, signature_name)
     elif function == 'sign':
         if len(sys.argv) < 5:
-            print("Missing arguments. Usage: python digi_sign_v5.py sign <algorithm> <document_filename> <signature_name>")
+            print("Missing arguments. Usage: python digi_sign.py sign <algorithm> <document_filename> <signature_name>")
             sys.exit(1)
         document_filename = sys.argv[3]
         signature_name = sys.argv[4]
@@ -218,7 +218,7 @@ def main():
         print(f"Embedding completed. Signed document: {output_file}")
     elif function == 'verify':
         if len(sys.argv) < 6:
-            print("Missing arguments. Usage: python digi_sign_v5.py verify <algorithm> <document_filename> <signature_name> <signature_filename>")
+            print("Missing arguments. Usage: python digi_sign.py verify <algorithm> <document_filename> <signature_name> <signature_filename>")
             sys.exit(1)
         document_filename = sys.argv[3]
         signature_name = sys.argv[4]
