@@ -9,10 +9,12 @@ This tool provides functionality for digitally signing and verifying documents, 
 
 ## Requirements
 
+Ubuntu OS only
 - Python 3.x
 - PyPDF2 library
 - lxml library
-- OpenSSL
+- OpenSSL version 3.x
+- OQS-provider installation
 
 ## Installation
 
@@ -27,7 +29,7 @@ This function generates a set of cryptographic keys (private and public) for dig
 **Usage:**
 
 ```
-python3 digi_sign_v5.py generate-keys [algorithm] [signature_name]
+python3 digi_sign.py generate-keys [algorithm] [signature_name]
 ```
 
 - `[algorithm]`: The cryptographic algorithm to use (e.g., dilithium2).
@@ -42,7 +44,7 @@ After generating keys, this function is used to sign a document. It creates a di
 **Usage:**
 
 ```
-python3 digi_sign_v5.py sign [algorithm] [document_filename] [signature_name]
+python3 digi_sign.py sign [algorithm] [document_filename] [signature_name]
 ```
 
 - `[document_filename]`: Path to the document to be signed.
@@ -60,7 +62,7 @@ This function verifies the authenticity of a signed document. It compares the em
 **Usage:**
 
 ```
-python3 digi_sign_v5.py verify [algorithm] [document_filename] [signature_name] [signature_filename]
+python3 digi_sign.py verify [algorithm] [document_filename] [signature_name] [signature_filename]
 ```
 
 - `[signature_filename]`: Path to the signature file generated during the signing process.
@@ -80,13 +82,13 @@ Ensure your OpenSSL installation supports these algorithms.
 **Generate Keys:**
 
 ```
-python3 digi_sign_v5.py generate-keys dilithium2 mySignature
+python3 digi_sign.py generate-keys dilithium2 mySignature
 ```
 
 **Sign a Document:**
 
 ```
-python3 digi_sign_v5.py sign dilithium2 transactions.pdf mySignature
+python3 digi_sign.py sign dilithium2 transactions.pdf mySignature
 ```
 
 **Verify a Signature:**
