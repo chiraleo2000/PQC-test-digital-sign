@@ -94,6 +94,6 @@ python3 digi_sign.py sign dilithium2 transactions.pdf mySignature
 **Verify a Signature:**
 
 ```
-python3 digi_sign_v5.py verify dilithium2 transactions.pdf mySignature transactions_mySignature_signature_pdf.sha512
+python3 digi_sign.py verify dilithium2 transactions.pdf mySignature transactions_mySignature_signature_pdf.sha512
 ```
 
