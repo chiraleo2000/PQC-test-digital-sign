@@ -97,3 +97,8 @@ python3 digi_sign.py sign dilithium2 transactions.pdf mySignature
 python3 digi_sign.py verify dilithium2 transactions.pdf mySignature transactions_mySignature_signature_pdf.sha512
 ```
 
+## Current
+In Sign and verfy on both xml and PDF file still not working as those tools may not support PQC Algorithm
+TODO:
+1. Find the compatible tools that support  PQC Algorithm for digital signature. 
+2. Implement to be recognizable in adobe reader or others PDF reader.
