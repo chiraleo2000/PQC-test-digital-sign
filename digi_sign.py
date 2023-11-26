@@ -1,9 +1,12 @@
+from PDFNetPython3.PDFNetPython import PDFNet, PDFDoc, SDFDoc, DigitalSignatureField, SignatureWidget, Image, Rect, Field, VerificationOptions
 import sys
 import subprocess
-import os
-from PyPDF2 import PdfReader, PdfWriter, generic
-import lxml.etree as ET
+from signxml import XMLSigner, XMLVerifier, methods
+from lxml import etree
 
+PDFNet.Initialize("demo:1700755433656:7caccb540300000000aee877819aaa93edceda0f5d7086bc85f2fe302c")
+
+# Function to Run Shell Command
 def run_shell_command(command):
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -12,6 +15,7 @@ def run_shell_command(command):
         print(f"Error running command '{' '.join(command)}': {e.stderr}")
         sys.exit(1)
 
+# Function to Get Certificate Subject from User Input
 def get_certificate_subject():
     country = input("Country Name (2 letter code): ")
     state = input("State or Province Name: ")
@@ -19,213 +23,186 @@ def get_certificate_subject():
     organization = input("Organization Name: ")
     organizational_unit = input("Organizational Unit Name: ")
     common_name = input("Common Name: ")
-
     subject = f"/C={country}/ST={state}/L={locality}/O={organization}/OU={organizational_unit}/CN={common_name}"
     return subject
 
+# Function to Generate Keys using OpenSSL
 def generate_keys(algorithm, signature_name):
     key_file = f'{signature_name}_key.pem'
     cert_file = f'{signature_name}_cert.pem'
     pubkey_file = f'{signature_name}_key_pubkey.pem'
-
-    # Generate key and certificate
-    run_shell_command(['openssl', 'genpkey', '-algorithm', algorithm, '-out', key_file])
+    run_shell_command(['openssl', 'genpkey', '-algorithm', algorithm, '-outform', 'PEM' ,'-out', key_file])
     subject = get_certificate_subject()
     run_shell_command(['openssl', 'req', '-new', '-x509', '-key', key_file, '-out', cert_file, '-days', '365', '-subj', subject])
     run_shell_command(['openssl', 'pkey', '-in', key_file, '-pubout', '-out', pubkey_file])
-
     print(f"Key and certificate generated for {signature_name}.")
 
-def sign_document(document_filename, signature_name, algorithm):
-    base_filename = os.path.splitext(document_filename)[0]
-    file_extension = os.path.splitext(document_filename)[1][1:]  # Extract file extension from document_filename
-    key_file = f'{signature_name}_key.pem'
-    signature_file = f'{base_filename}_{signature_name}_signature_{file_extension}.sha512'  # Updated naming convention
-    tsq_file = f'{base_filename}_{signature_name}.tsq'
-    tsr_file = f'{base_filename}_{signature_name}.tsr'
-
-    # Sign the document
-    run_shell_command(['openssl', 'dgst', '-sha512', '-sign', key_file, '-out', signature_file, document_filename])
-    run_shell_command(['openssl', 'ts', '-query', '-data', signature_file, '-no_nonce', '-sha512', '-out', tsq_file])
-    run_shell_command(['curl', '-H', 'Content-Type: application/timestamp-query', '--data-binary', f'@{tsq_file}', 'https://freetsa.org/tsr', '-o', tsr_file])
-
-    print(f"Document {document_filename} signed using {signature_name} with algorithm {algorithm}.")
-
-
-def verify_signature_with_openssl(algorithm, document_file, signature_name, signature_file):
-    public_key_file = f'{signature_name}'+'_key_pubkey.pem'
-    result = run_shell_command(['openssl', 'dgst', '-sha512', '-verify', public_key_file, '-signature', signature_file, document_file])
-    print(result)
-
-def embed_signature_timestamp_pdf(pdf_path, signature_path, timestamp_path, output_pdf_path):
+# Function to Generate Digital Signature for PDF
+def sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, cert_file_path, key_file_path):
     try:
-        print("Embedding in PDF...")
-        with open(pdf_path, 'rb') as file:
-            reader = PdfReader(file)
-            writer = PdfWriter()
+        doc = PDFDoc(pdf_path)
+        doc.InitSecurityHandler()
 
-            # Copy pages
-            for page in reader.pages:
-                writer.add_page(page)
+        # Create a new signature field
+        signature_field = doc.FieldCreate(signature_name, Field.e_signature)
+        page1 = doc.GetPage(1)
+        if page1:
+            widgetAnnot = SignatureWidget.Create(doc, Rect(0, 100, 200, 300), signature_field)
+            page1.AnnotPushBack(widgetAnnot)
 
-            # Read existing metadata or create new
-            existing_metadata = reader.metadata or {}
-            signature_count = int(existing_metadata.get("/SignatureCount", 0)) + 1
+            # Set the signature appearance
+            img = Image.Create(doc.GetSDFDoc(), signature_image_path)
+            widgetAnnot.CreateSignatureAppearance(img)
 
-            # Read signature and timestamp
-            with open(signature_path, 'rb') as sig_file, open(timestamp_path, 'rb') as ts_file:
-                signature_content = sig_file.read()
-                timestamp_content = ts_file.read()
+        # Prepare for signing
+        approval_signature_digsig_field = DigitalSignatureField(signature_field)
+        approval_signature_digsig_field.CertifyOnNextSave(key_file_path, cert_file_path)
+        approval_signature_digsig_field.SetLocation("Location")
+        approval_signature_digsig_field.SetReason("Reason")
+        approval_signature_digsig_field.SetContactInfo("ContactInfo")
 
-                # Create PdfObject for metadata
-                signature_key = generic.create_string_object(f"/Signature{signature_count}")
-                timestamp_key = generic.create_string_object(f"/Timestamp{signature_count}")
-                existing_metadata[signature_key] = generic.create_string_object(signature_content.hex())
-                existing_metadata[timestamp_key] = generic.create_string_object(timestamp_content.hex())
-                existing_metadata[generic.create_string_object("/SignatureCount")] = generic.create_string_object(str(signature_count))
-
-            writer.add_metadata(existing_metadata)
-
-            # Write output PDF
-            with open(output_pdf_path, 'wb') as output_file:
-                writer.write(output_file)
-
-        print("PDF embedding completed.")
+        # Save the document
+        doc.Save(output_pdf_path, SDFDoc.e_incremental)
+        print(f"PDF signed and saved as {output_pdf_path}")
     except Exception as e:
-        print(f"An error occurred while embedding in PDF: {e}")
+        print(f"Error during PDF signing: {e}")
 
-# Function to Display All Signatures in PDF
-def display_signatures_timestamps_pdf(pdf_path):
+# Function to Sign PDF
+def sign_pdf(pdf_path, signature_name, output_pdf_path, signature_image_path):
+    cert_file_path = f'{signature_name}_cert.pem'
+    key_file_path = f'{signature_name}_key.pem'
+    sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, cert_file_path, key_file_path)
+
+# Function to Sign XML with pyasice
+def sign_xml_with_pyasice(xml_path, key_file, cert_file, output_xml_path):
     try:
-        with open(pdf_path, 'rb') as file:
-            reader = PdfReader(file)
-            metadata = reader.metadata
-            signature_count = int(metadata.get("/SignatureCount", 0))
-
-            for i in range(1, signature_count + 1):
-                signature = metadata.get(f"/Signature{i}")
-                timestamp = metadata.get(f"/Timestamp{i}")
-                print(f"Signature {i}: {signature}")
-                print(f"Timestamp {i}: {timestamp}")
+        signer = XMLSigner(key_file=key_file, cert_file=cert_file)
+        with open(xml_path, 'rb') as xml_file:
+            signed_xml = signer.sign(xml_file)
+        with open(output_xml_path, 'wb') as output_file:
+            output_file.write(signed_xml)
     except Exception as e:
-        print(f"An error occurred while reading signatures: {e}")
-
-def embed_signature_timestamp_xml(xml_path, signature_path, timestamp_path, output_xml_path):
+        print(f"Error signing XML: {e}")
+# Function to Sign XML with custom key and certificate
+def sign_xml_custom(xml_path, key_file_path, cert_file_path, signature_algorithm ,output_xml_path):
     try:
-        print("Embedding in XML...")
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
+        with open(xml_path, 'rb') as f:
+            xml_data = f.read()
 
-        signatures = root.find(".//Signatures")
-        if signatures is None:
-            signatures = ET.SubElement(root, "Signatures")
+        with open(key_file_path, 'rb') as f:
+            key = f.read()
 
-        signature_id = len(signatures) + 1
+        with open(cert_file_path, 'rb') as f:
+            cert = f.read()
 
-        with open(signature_path, 'rb') as sig_file, open(timestamp_path, 'rb') as ts_file:
-            signature_content = sig_file.read()
-            timestamp_content = ts_file.read()
+        root = etree.fromstring(xml_data)
+        signer = XMLSigner(method=methods.enveloped, signature_algorithm=signature_algorithm)
+        signed_root = signer.sign(root, key=key, cert=cert)
 
-            signature_element = ET.SubElement(signatures, f"Signature{signature_id}")
-            signature_element.text = ET.CDATA(signature_content.hex())
+        with open(output_xml_path, 'wb') as f:
+            f.write(etree.tostring(signed_root))
+        print("XML signed successfully.")
 
-            timestamp_element = ET.SubElement(signature_element, "Timestamp")
-            timestamp_element.text = ET.CDATA(timestamp_content.hex())
-
-        tree.write(output_xml_path, pretty_print=True, xml_declaration=True, encoding="UTF-8")
-
-        print("XML embedding completed.")
     except Exception as e:
-        print(f"An error occurred while embedding in XML: {e}")
-        
-# Function to Display All Signatures in XML
-def display_signatures_timestamps_xml(xml_path):
+        print(f"Error signing XML: {e}")
+
+# Function to Verify Signed XML
+def verify_signed_xml(signed_xml_path, cert_file_path):
     try:
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
-        signatures = root.find(".//Signatures")
+        with open(signed_xml_path, 'rb') as f:
+            signed_xml_data = f.read()
 
-        if signatures is None:
-            print("No signatures found.")
-            return
+        with open(cert_file_path, 'rb') as f:
+            cert = f.read()
 
-        for i, signature in enumerate(signatures, start=1):
-            signature_content = signature.text
-            timestamp = signature.find("Timestamp").text
-            print(f"Signature {i}: {signature_content}")
-            print(f"Timestamp {i}: {timestamp}")
+        root = etree.fromstring(signed_xml_data)
+        verified_data = XMLVerifier().verify(root, x509_cert=cert).signed_xml
+
+        print("XML signature is valid.")
     except Exception as e:
-        print(f"An error occurred while reading signatures: {e}")
+        print(f"Error during XML signature verification: {e}")
 
-def embed_signature_timestamp(file_path, signature_path, timestamp_path, output_path):
-    if file_path.lower().endswith('.pdf'):
-        embed_signature_timestamp_pdf(file_path, signature_path, timestamp_path, output_path)
-        display_signatures_timestamps_pdf(output_path)
-    elif file_path.lower().endswith('.xml'):
-        embed_signature_timestamp_xml(file_path, signature_path, timestamp_path, output_path)
-        display_signatures_timestamps_xml(output_path)
+# Update the process_file function for XML signing and verifying
+def process_file(action, file_type, file_path, signature_name, signature_algorithm,signature_image_path=None):
+    if file_type == 'pdf':
+        if action == 'sign':
+            output_pdf_path = f'{signature_name}_signed.pdf'
+            sign_pdf(file_path, signature_name, output_pdf_path, signature_image_path)
+        elif action == 'verify':
+            pass
+    elif file_type == 'xml':
+        if action == 'sign':
+            output_xml_path = f'{signature_name}_signed.xml'
+            sign_xml_custom(file_path, f'{signature_name}_key.pem', f'{signature_name}_cert.pem', signature_algorithm, output_xml_path)
+        elif action == 'verify':
+            verify_signed_xml(file_path, f'{signature_name}_cert.pem')
     else:
         print("Unsupported file type")
 
 def print_help_message():
-    print("Usage: python digi_sign.py <function> <algorithm> <document_filename> [<signature_name>]")
-    print("\nFunctions:")
-    print("  'generate-keys' - Generates a key and certificate for a signature name.")
-    print("    - Usage: python digi_sign.py generate-keys <algorithm> <signature_name>")
-    print("  'sign' - Signs a document using the specified signature name.")
-    print("    - Usage: python digi_sign.py sign <algorithm> <document_filename> <signature_name>")
-    print("  'verify' - Verifies the signature of the specified document.")
-    print("    - Usage: python digi_sign.py verify <algorithm> <document_filename> <signature_filename>")
-    print("\nAlgorithm for digital signature: ")
-    print(" CRYSTALS-Dilithium: dilithium2, p256_dilithium2, rsa3072_dilithium2, dilithium3, p384_dilithium3, dilithium5, p521_dilithium5")
-    print("\nExamples:")
-    print("  python3 digi_sign.py generate-keys dilithium2 mySignature1")
-    print("  python3 digi_sign.py sign dilithium2 transactions.pdf mySignature1")
-    print("  python3 digi_sign.py verify dilithium2 transactions.pdf mySignature1 transactions_mySignature1_signature_pdf.sha512")
+    help_message = """
+Usage: python digi_sign.py <action> <additional_arguments>
 
+Actions:
+  generate-keys - Generate a key and certificate for digital signatures.
+    Usage: generate-keys <algorithm> <signature_name>
+
+  sign - Sign a document (PDF or XML).
+    Usage: sign <file_type> <file_path> <signature_name>
+
+  verify - Verify a signed document (PDF or XML).
+    Usage: verify <file_type> <file_path> <signature_name>
+
+Algorithm for PQC digital signature: 
+    CRYSTALS-Dilithium: dilithium2, p256_dilithium2, rsa3072_dilithium2,
+    dilithium3, p384_dilithium3, dilithium5, p521_dilithium5
+
+Examples:
+  python3 digi_sign.py generate-keys dilithium2 mySignature
+  python3 digi_sign.py sign pdf example.pdf mySignature dilithium2 signature_image.jpg
+  python3 digi_sign.py verify pdf signed_example.pdf mySignature 
+  python3 digi_sign.py sign xml example.xml mySignature dilithium2
+  python3 digi_sign.py verify xml signed_example.xml mySignature
+"""
+    print(help_message)
+
+# Main Function for Command-Line Execution
 def main():
     if len(sys.argv) == 2 and sys.argv[1] in ['--help', '-h']:
         print_help_message()
-        sys.exit(0)
-
-    if len(sys.argv) < 3:
-        print("Missing arguments. For usage instructions, run:")
-        print("  python digi_sign.py --help")
+        return
+    if len(sys.argv) < 2:
+        print("Incorrect usage. See help for more information.")
         sys.exit(1)
-
-    function = sys.argv[1]
-    algorithm = sys.argv[2]
-
-    if function == 'generate-keys':
-        if len(sys.argv) < 4:
-            print("Missing signature name. Usage: python digi_sign.py generate-keys <algorithm> <signature_name>")
+    action = sys.argv[1]
+    if action == 'generate-keys':
+        if len(sys.argv) != 4:
+            print("Incorrect usage for generate-keys. See help for more information.")
             sys.exit(1)
+        algorithm = sys.argv[2]
         signature_name = sys.argv[3]
         generate_keys(algorithm, signature_name)
-    elif function == 'sign':
-        if len(sys.argv) < 5:
-            print("Missing arguments. Usage: python digi_sign.py sign <algorithm> <document_filename> <signature_name>")
-            sys.exit(1)
-        document_filename = sys.argv[3]
-        signature_name = sys.argv[4]
-        sign_document(document_filename, signature_name, algorithm)
-        base_filename = os.path.splitext(document_filename)[0]
-        file_extension = os.path.splitext(document_filename)[1][1:]  # Extract file extension from document_filename
-        signature_file = f'{base_filename}_{signature_name}_signature_{file_extension}.sha512'  # Updated naming convention
-        tsr_file = f'{base_filename}_{signature_name}.tsr'
-        output_file = f'{base_filename}_{signature_name}_signed.{document_filename.split(".")[-1]}'
-        embed_signature_timestamp(document_filename, signature_file, tsr_file, output_file)
-        print(f"Embedding completed. Signed document: {output_file}")
-    elif function == 'verify':
+    elif action == 'sign':
         if len(sys.argv) < 6:
-            print("Missing arguments. Usage: python digi_sign.py verify <algorithm> <document_filename> <signature_name> <signature_filename>")
+            print("Incorrect usage for sign. See help for more information.")
             sys.exit(1)
-        document_filename = sys.argv[3]
+        file_type = sys.argv[2]
+        file_path = sys.argv[3]
         signature_name = sys.argv[4]
-        signature_filename = sys.argv[5]
-        verify_signature_with_openssl(algorithm, document_filename, signature_name,  signature_filename)
+        signature_algorithm = sys.argv[5]
+        signature_image_path = sys.argv[6] if len(sys.argv) > 6 and file_type == 'pdf' else None
+        process_file(action, file_type, file_path, signature_name, signature_algorithm,signature_image_path)
+
+    elif action == 'verify':
+        if len(sys.argv) != 5:
+            print(f"Incorrect usage for {action}. See help for more information.")
+            sys.exit(1)
+        file_type = sys.argv[2]
+        file_path = sys.argv[3]
+        signature_name = sys.argv[4]
+        process_file(action, file_type, file_path, signature_name)
     else:
-        print("Invalid function type or missing arguments. Use 'generate-keys', 'sign', or 'verify'.")
+        print("Invalid action. Use 'generate-keys', 'sign', or 'verify'.")
 
 if __name__ == "__main__":
     main()
