@@ -1,4 +1,4 @@
-from PDFNetPython3.PDFNetPython import PDFNet, PDFDoc, SDFDoc, DigitalSignatureField, SignatureWidget, Image, Rect, Field, VerificationOptions
+from PDFNetPython3.PDFNetPython import PDFNet, PDFDoc, SDFDoc, DigitalSignatureField, SignatureWidget, Image, Rect, Field, VerificationOptions, TimestampingConfiguration
 import sys
 import subprocess
 from signxml import XMLSigner, XMLVerifier, methods
@@ -37,41 +37,67 @@ def generate_keys(algorithm, signature_name):
     run_shell_command(['openssl', 'pkey', '-in', key_file, '-pubout', '-out', pubkey_file])
     print(f"Key and certificate generated for {signature_name}.")
 
+# Function to generate a PKCS12 file
+def generate_pkcs12(signature_name):
+    key_file = f'{signature_name}_key.pem'
+    cert_file = f'{signature_name}_cert.pem'
+    p12_file = f'{signature_name}.p12'
+    run_shell_command(['openssl', 'pkcs12', '-export', '-out', p12_file, '-inkey', key_file, '-in', cert_file])
+    print(f"PKCS12 file generated for {signature_name}.")
+
 # Function to Generate Digital Signature for PDF
-def sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, cert_file_path, key_file_path):
+def sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, p12_file_path, p12_password):
     try:
+        PDFNet.Initialize()
         doc = PDFDoc(pdf_path)
         doc.InitSecurityHandler()
 
-        # Create a new signature field
-        signature_field = doc.FieldCreate(signature_name, Field.e_signature)
+        # Work with the first page only
         page1 = doc.GetPage(1)
-        if page1:
-            widgetAnnot = SignatureWidget.Create(doc, Rect(0, 100, 200, 300), signature_field)
-            page1.AnnotPushBack(widgetAnnot)
+        if page1 is None:
+            raise Exception("Page 1 not found in the document.")
 
-            # Set the signature appearance
-            img = Image.Create(doc.GetSDFDoc(), signature_image_path)
-            widgetAnnot.CreateSignatureAppearance(img)
-
-        # Prepare for signing
-        approval_signature_digsig_field = DigitalSignatureField(signature_field)
-        approval_signature_digsig_field.CertifyOnNextSave(key_file_path, cert_file_path)
-        approval_signature_digsig_field.SetLocation("Location")
-        approval_signature_digsig_field.SetReason("Reason")
-        approval_signature_digsig_field.SetContactInfo("ContactInfo")
-
+        # Calculate position for the signature at the bottom right
+        page_width, page_height = page1.GetPageWidth(), page1.GetPageHeight()
+        signature_width, signature_height = 100, 50  # Set signature size
+        x_coordinate = page_width - signature_width - 10  # 10 units from the right edge
+        y_coordinate = 10  # 10 units from the bottom edge
+        
+        # Create signature field
+        sigField = SignatureWidget.Create(doc, Rect(x_coordinate, y_coordinate, x_coordinate + signature_width, y_coordinate + signature_height), signature_name)
+        page1.AnnotPushBack(sigField)
+        
+        # Ensure the field is added to the document's field dictionary
+        if not doc.GetField(signature_name):
+            doc.FieldCreate(signature_name, Field.e_signature, sigField.GetSDFObj())
+        # Prepare the signature field
+        approval_field = doc.GetField(signature_name)
+        if not approval_field:
+            raise Exception("Failed to create digital signature field.")
+        approval_signature_digsig_field = DigitalSignatureField(approval_field)
+        
+        # Add appearance to the signature field
+        img = Image.Create(doc.GetSDFDoc(), signature_image_path)
+        found_approval_signature_widget = SignatureWidget(approval_field.GetSDFObj())
+        found_approval_signature_widget.CreateSignatureAppearance(img)
+        # Prepare the signature and signature handler for signing with PKCS#12 file
+        # timestamping_config = TimestampingConfiguration("https://freetsa.org/tsr")
+        # timestamp_response_verification_options = VerificationOptions()
+        # approval_signature_digsig_field.TimestampOnNextSave(timestamping_config, timestamp_response_verification_options)
+        approval_signature_digsig_field.SignOnNextSave(p12_file_path, p12_password)
+        print("Prepare the signature and signature handler for signing with PKCS#12 file")
+        
         # Save the document
         doc.Save(output_pdf_path, SDFDoc.e_incremental)
         print(f"PDF signed and saved as {output_pdf_path}")
     except Exception as e:
         print(f"Error during PDF signing: {e}")
 
+
 # Function to Sign PDF
-def sign_pdf(pdf_path, signature_name, output_pdf_path, signature_image_path):
-    cert_file_path = f'{signature_name}_cert.pem'
-    key_file_path = f'{signature_name}_key.pem'
-    sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, cert_file_path, key_file_path)
+def sign_pdf(pdf_path, signature_name, output_pdf_path, signature_image_path, p12_password):
+    p12_file_path = f'{signature_name}.p12'
+    sign_pdf_with_certificate(pdf_path, signature_name, output_pdf_path, signature_image_path, p12_file_path, p12_password)
 
 # Function to Sign XML with pyasice
 def sign_xml_with_pyasice(xml_path, key_file, cert_file, output_xml_path):
@@ -123,11 +149,12 @@ def verify_signed_xml(signed_xml_path, cert_file_path):
         print(f"Error during XML signature verification: {e}")
 
 # Update the process_file function for XML signing and verifying
-def process_file(action, file_type, file_path, signature_name, signature_algorithm,signature_image_path=None):
+def process_file(action, file_type, file_path, signature_name, signature_algorithm, signature_image_path=None, p12_password=None):
     if file_type == 'pdf':
         if action == 'sign':
             output_pdf_path = f'{signature_name}_signed.pdf'
-            sign_pdf(file_path, signature_name, output_pdf_path, signature_image_path)
+            sign_pdf(file_path, signature_name, output_pdf_path, signature_image_path,p12_password)
+
         elif action == 'verify':
             pass
     elif file_type == 'xml':
@@ -159,7 +186,7 @@ Algorithm for PQC digital signature:
 
 Examples:
   python3 digi_sign.py generate-keys dilithium2 mySignature
-  python3 digi_sign.py sign pdf example.pdf mySignature dilithium2 signature_image.jpg
+  python3 digi_sign.py sign pdf example.pdf mySignature dilithium2 signature_image.jpg your-p12-signature_passwd
   python3 digi_sign.py verify pdf signed_example.pdf mySignature 
   python3 digi_sign.py sign xml example.xml mySignature dilithium2
   python3 digi_sign.py verify xml signed_example.xml mySignature
@@ -182,6 +209,7 @@ def main():
         algorithm = sys.argv[2]
         signature_name = sys.argv[3]
         generate_keys(algorithm, signature_name)
+        generate_pkcs12(signature_name)
     elif action == 'sign':
         if len(sys.argv) < 6:
             print("Incorrect usage for sign. See help for more information.")
@@ -190,8 +218,9 @@ def main():
         file_path = sys.argv[3]
         signature_name = sys.argv[4]
         signature_algorithm = sys.argv[5]
-        signature_image_path = sys.argv[6] if len(sys.argv) > 6 and file_type == 'pdf' else None
-        process_file(action, file_type, file_path, signature_name, signature_algorithm,signature_image_path)
+        signature_image_path = sys.argv[6] if len(sys.argv) > 7 and file_type == 'pdf' else None
+        p12_password = sys.argv[7] if len(sys.argv) > 7 and file_type == 'pdf' else None
+        process_file(action, file_type, file_path, signature_name, signature_algorithm,signature_image_path, p12_password)
 
     elif action == 'verify':
         if len(sys.argv) != 5:
