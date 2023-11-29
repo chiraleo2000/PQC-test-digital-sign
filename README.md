@@ -88,13 +88,22 @@ python3 digi_sign.py generate-keys dilithium2 mySignature
 **Sign a Document:**
 
 ```
-python3 digi_sign.py sign dilithium2 transactions.pdf mySignature
+python3 digi_sign.py sign pdf example.pdf mySignature dilithium2 signature_image.jpg your-p12-signature_passwd
 ```
 
 **Verify a Signature:**
 
 ```
-python3 digi_sign.py verify dilithium2 transactions.pdf mySignature transactions_mySignature_signature_pdf.sha512
+python3 digi_sign.py verify pdf signed_example.pdf mySignature
+```
+
+**Examples:**
+```
+python3 digi_sign.py generate-keys dilithium2 mySignature
+python3 digi_sign.py sign pdf example.pdf mySignature dilithium2 signature_image.jpg your-p12-signature_passwd
+python3 digi_sign.py verify pdf signed_example.pdf mySignature 
+python3 digi_sign.py sign xml example.xml mySignature dilithium2
+python3 digi_sign.py verify xml signed_example.xml mySignature
 ```
 
 ## Current
